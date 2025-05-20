@@ -1,0 +1,25 @@
+services:
+  cellax:
+    restart: always
+    #image: nvcr.io/nvidia/jax:25.04-py3
+    image: ichiharanaruki/jaxfenicsx:latest
+    container_name: 'cellax'
+    working_dir: '/home/'
+    tty: true
+    volumes:
+      - ./:/home
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg
+    shm_size: 4gb
+    environment:
+      - DISPLAY=$DISPLAY
+      - WAYLAND_DISPLAY=$WAYLAND_DISPLAY
+      - XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR
+      - PULSE_SERVER=$PULSE_SERVER
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
