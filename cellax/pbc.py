@@ -6,7 +6,7 @@ import meshio
 import gmsh
 import scipy
 from dataclasses import dataclass
-from typing import Callable, List
+from typing import Callable, Iterable
 from cellax.fem.generate_mesh import Mesh
 
 @dataclass
@@ -25,7 +25,7 @@ class PeriodicPairing:
     mapping: Callable[[onp.ndarray], onp.ndarray]
     vec: int
 
-def prolongation_matrix(periodic_pairings: List[PeriodicPairing], mesh: Mesh, vec: int) -> scipy.sparse.csr_array:
+def prolongation_matrix(periodic_pairings: Iterable[PeriodicPairing], mesh: Mesh, vec: int, offset: int=0) -> scipy.sparse.csr_array:
     """
     Constructs the prolongation matrix `P` for applying periodic boundary conditions (PBCs)
     in a finite element setting. The matrix `P` enforces constraints by reducing the degrees
@@ -35,13 +35,15 @@ def prolongation_matrix(periodic_pairings: List[PeriodicPairing], mesh: Mesh, ve
     to impose periodicity between opposing boundaries of the mesh.
 
     Args:
-        periodic_pairings (List[PeriodicPairing]): 
+        periodic_pairings (Iterable[PeriodicPairing]): 
             A list of periodic constraint definitions, each specifying the master/slave regions,
             the geometric mapping between them, and the component index to constrain.
         mesh (Mesh): 
             The finite element mesh object containing nodal coordinates and element connectivity.
         vec (int): 
             The number of degrees of freedom per node (e.g., 2 for 2D vector problems).
+        offset (int, optional, default=0):
+            The offset to be added to the node indices when constructing the prolongation matrix.
 
     Returns:
         scipy.sparse.csr_array: 
