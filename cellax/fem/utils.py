@@ -15,7 +15,7 @@ def save_sol(fe, sol, sol_file, cell_infos=None, point_infos=None):
     sol_dir = os.path.dirname(sol_file)
     os.makedirs(sol_dir, exist_ok=True)
     out_mesh = meshio.Mesh(points=fe.points, cells={cell_type: fe.cells})
-    out_mesh.point_data['sol'] = onp.array(sol, dtype=onp.float32)
+    out_mesh.point_data['u'] = onp.array(sol, dtype=onp.float32)
     if cell_infos is not None:
         for cell_info in cell_infos:
             name, data = cell_info

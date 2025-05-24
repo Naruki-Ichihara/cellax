@@ -76,6 +76,7 @@ class FiniteElement:
         self.num_nodes = self.shape_vals.shape[1]
         self.num_faces = self.face_shape_vals.shape[0]
         self.shape_grads, self.JxW = self.get_shape_grads()
+        print(self.dirichlet_bc_info)
         self.node_inds_list, self.vec_inds_list, self.vals_list = self.Dirichlet_boundary_conditions(self.dirichlet_bc_info)
         
         # self.p_node_inds_list_A, self.p_node_inds_list_B, self.p_vec_inds_list = self.periodic_boundary_conditions()

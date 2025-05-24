@@ -3,7 +3,7 @@ import jax
 import jax.numpy as np
 import jax.flatten_util
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, List, Union
+from typing import Any, Callable, Optional, List, Iterable
 import functools
 
 from cellax.fem.utils import timeit 
@@ -11,26 +11,72 @@ from cellax.fem.generate_mesh import Mesh
 from cellax.fem.fe import FiniteElement
 from cellax.fem import logger
 
+@dataclass
+class DirichletBC:
+    """Dirichlet boundary condition.
+    Attributes:
+        subdomain: Callable
+            The subdomain function that defines the boundary.
+        vec: int
+            Integer value must be in the range of 0 to vec - 1,
+            specifying which component of the (vector) variable to apply Dirichlet condition to
+        eval: Callable
+            The evaluation function for the Dirichlet boundary condition.
+    """
+    subdomain: Callable
+    vec: int
+    eval: Callable
 
 @dataclass
 class Problem:
+    """Problem class for finite element method.
+
+    Attributes:
+        mesh: Mesh or List[Mesh]
+            The mesh or list of meshes for the problem.
+        vec: int or List[int]
+            The number of vector components for the problem.
+        dim: int
+            The dimension of the problem.
+        ele_type: str or List[str]
+            The type of finite elements used in the problem.
+        gauss_order: int or List[int], optional
+            The order of Gaussian quadrature used for integration.
+        dirichlet_bcs: Optional[Iterable[DirichletBC]], optional
+            Iterable of Dirichlet boundary conditions.
+        neumann_subdomains: Optional[List[Callable]], optional
+            List of Neumann subdomain functions.
+        additional_info: Any, optional
+            Additional information to be passed to the custom initialization function.
+    """
     mesh: Mesh
     vec: int
     dim: int
     ele_type: str = 'HEX8'
     gauss_order: int = None
-    dirichlet_bc_info: Optional[List[Union[List[Callable], List[int], List[Callable]]]] = None
-    location_fns: Optional[List[Callable]] = None
+    dirichlet_bcs: Optional[Iterable[DirichletBC]] = None
+    neumann_subdomains: Optional[List[Callable]] = None
     additional_info: Any = ()
+    prolongation_matrix: Optional[np.ndarray] = None
 
     def __post_init__(self):
+
+        if self.prolongation_matrix is not None:
+            self.P_mat = self.prolongation_matrix
+            logger.debug("Using provided prolongation matrix.")
 
         if type(self.mesh) != type([]):
             self.mesh = [self.mesh]
             self.vec = [self.vec]
             self.ele_type = [self.ele_type]
             self.gauss_order = [self.gauss_order]
-            self.dirichlet_bc_info = [self.dirichlet_bc_info]
+
+        if self.dirichlet_bcs is not None:
+            self.dirichlet_bc_info = [[bc.subdomain for bc in self.dirichlet_bcs],
+                                      [bc.vec for bc in self.dirichlet_bcs],
+                                      [bc.eval for bc in self.dirichlet_bcs]]
+        else:
+            self.dirichlet_bc_info = None
 
         self.num_vars = len(self.mesh)
 
@@ -39,13 +85,13 @@ class Problem:
                                   dim=self.dim, 
                                   ele_type=self.ele_type[i], 
                                   gauss_order=self.gauss_order[i] if type(self.gauss_order) == type([]) else self.gauss_order,
-                                  dirichlet_bc_info=self.dirichlet_bc_info[i] if type(self.dirichlet_bc_info) == type([]) else self.dirichlet_bc_info) \
+                                  dirichlet_bc_info=self.dirichlet_bc_info) \
                     for i in range(self.num_vars)] 
 
         self.cells_list = [fe.cells for fe in self.fes]
         # Assume all fes have the same number of cells, same dimension
         self.num_cells = self.fes[0].num_cells
-        self.boundary_inds_list = self.fes[0].get_boundary_conditions_inds(self.location_fns)
+        self.boundary_inds_list = self.fes[0].get_boundary_conditions_inds(self.neumann_subdomains)
 
         self.offset = [0] 
         for i in range(len(self.fes) - 1):
