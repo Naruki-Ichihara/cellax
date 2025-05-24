@@ -48,6 +48,10 @@ class Problem:
             List of Neumann subdomain functions.
         additional_info: Any, optional
             Additional information to be passed to the custom initialization function.
+        prolongation_matrix: Optional[np.ndarray], optional
+            Prolongation matrix for the problem, used in multigrid methods.
+        perturbation: Optional[np.ndarray], optional
+            Perturbation for the problem, used in inverse problems or sensitivity analysis.
     """
     mesh: Mesh
     vec: int
@@ -58,12 +62,20 @@ class Problem:
     neumann_subdomains: Optional[List[Callable]] = None
     additional_info: Any = ()
     prolongation_matrix: Optional[np.ndarray] = None
+    perturbation: Optional[np.ndarray] = None
 
     def __post_init__(self):
 
         if self.prolongation_matrix is not None:
             self.P_mat = self.prolongation_matrix
             logger.debug("Using provided prolongation matrix.")
+
+        if self.perturbation is not None:
+            assert self.perturbation.shape[1] == self.dim, \
+                f"Perturbation shape {self.perturbation.shape[1]} does not match dimension {self.vec}."
+            assert self.perturbation.shape[1] == len(self.mesh.points[1]), \
+                f"Perturbation shape {self.perturbation.shape[1]} does not match mesh points shape {len(self.mesh.points[1])}."
+            self.u_affine = self.perturbation.reshape(-1)
 
         if type(self.mesh) != type([]):
             self.mesh = [self.mesh]

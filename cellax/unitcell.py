@@ -6,7 +6,7 @@ from cellax.fem.generate_mesh import Mesh
 from itertools import product
 
 from abc import ABC, abstractmethod
-from typing import Any, Tuple, Iterable, Callable
+from typing import Any, Tuple, Iterable, Callable, Optional
 from cellax.fem import logger
 
 class Unitcell(ABC):
@@ -56,6 +56,21 @@ class Unitcell(ABC):
             corner_list.append(corner)
 
         return np.array(corner_list)
+    
+    def perturbation(self, mean_gradient: np.ndarray, origin: Optional[np.ndarray]=None) -> np.ndarray:
+        """Apply a perturbation to the unit cell points based on the mean gradient.
+
+        Args:
+            mean_gradient (np.ndarray): The mean gradient to apply.
+            origin (Optional[np.ndarray]): The origin point for perturbation.
+
+        Returns:
+            np.ndarray: Perturbed points.
+        """
+        if origin is None:
+            origin = np.min(self.points, axis=0)  # default to lower-left corner
+        x_shifted = self.points - origin
+        return x_shifted @ mean_gradient.T
     
     def is_corner(self, point: np.ndarray) -> bool:
         """Check if a point is a corner of the unit cell.

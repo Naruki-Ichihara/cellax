@@ -12,6 +12,29 @@ from cellax.fem import logger
 from jax import config
 config.update("jax_enable_x64", True)
 
+def array_to_petsc_vec(arr, size=None):
+    """
+    Convert a JAX or NumPy array to a PETSc.Vec.
+
+    Parameters
+    ----------
+    arr : array-like
+        JAX array (DeviceArray) or NumPy array of shape (N,)
+    size : int or None
+        If None, uses len(arr) as vector size
+
+    Returns
+    -------
+    vec : PETSc.Vec
+        PETSc vector with values set from arr
+    """
+    arr_np = onp.array(arr).flatten()  # ensure NumPy, ensure 1D
+    if size is None:
+        size = arr_np.shape[0]
+    vec = PETSc.Vec().createSeq(size)
+    vec.setValues(range(size), arr_np)
+    vec.assemble()
+    return vec
 
 ################################################################################
 # JAX solver or scipy solver or PETSc solver
@@ -275,7 +298,7 @@ def line_search(problem, dofs, inc):
     return dofs + alpha*inc
 
 
-def get_A(problem):
+def get_A(problem, full=False):
     logger.debug(f"Creating sparse matrix with scipy...")
     A_sp_scipy = scipy.sparse.csr_array((onp.array(problem.V), (problem.I, problem.J)),
         shape=(problem.num_total_dofs_all_vars, problem.num_total_dofs_all_vars))
@@ -292,7 +315,7 @@ def get_A(problem):
             A.zeroRows(row_inds)
 
     # Linear multipoint constraints
-    if hasattr(problem, 'P_mat'):
+    if hasattr(problem, 'P_mat') and full==False:
         P = PETSc.Mat().createAIJ(size=problem.P_mat.shape, csr=(problem.P_mat.indptr.astype(PETSc.IntType, copy=False),
                                                    problem.P_mat.indices.astype(PETSc.IntType, copy=False), problem.P_mat.data))
 
@@ -386,16 +409,26 @@ def solver(problem, solver_options={}):
     def newton_update_helper(dofs):
         if hasattr(problem, 'P_mat'):
             dofs = problem.P_mat @ dofs
+            if hasattr(problem, 'u_affine') and problem.u_affine is not None:
+                dofs = dofs + problem.u_affine
 
         sol_list = problem.unflatten_fn_sol_list(dofs)
         res_list = problem.newton_update(sol_list)
         res_vec = jax.flatten_util.ravel_pytree(res_list)[0]
         res_vec = apply_bc_vec(res_vec, dofs, problem)
 
+        A = get_A(problem)
+        A_full = get_A(problem, full=True)
+
+        if hasattr(problem, 'u_affine') and problem.u_affine is not None:
+            u_affine_petsc = array_to_petsc_vec(problem.u_affine, A_full.getSize()[0])
+            K_affine_vec = PETSc.Vec().createSeq(A_full.getSize()[0])
+            A_full.mult(u_affine_petsc, K_affine_vec)
+            res_vec = res_vec - np.array(K_affine_vec.getArray())
+
         if hasattr(problem, 'P_mat'):
             res_vec = problem.P_mat.T @ res_vec
 
-        A = get_A(problem)
         return res_vec, A
 
     res_vec, A = newton_update_helper(dofs)
@@ -417,6 +450,8 @@ def solver(problem, solver_options={}):
 
     if hasattr(problem, 'P_mat'):
         dofs = problem.P_mat @ dofs
+        if hasattr(problem, 'u_affine') and problem.u_affine is not None:
+            dofs = dofs + problem.u_affine
 
     # If sol_list = [[[u1x, u1y], 
     #                 [u2x, u2y], 
