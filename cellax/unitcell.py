@@ -38,7 +38,7 @@ class Unitcell(ABC):
                 [(minimum point), (maximum point)]
         """
         # Get the boundary of the mesh
-        return np.min(self.points, axis=0), np.max(self.points, axis=0)
+        return self.lb, self.ub
     
     @property
     def corners(self) -> np.ndarray:

@@ -19,11 +19,14 @@ class LinearElasticity(Problem):
     # The function 'get_tensor_map' overrides base class method. Generally, JAX-FEM 
     # solves -div(f(u_grad)) = b. Here, we have f(u_grad) = sigma.
     def get_tensor_map(self):
-        def stress(u_grad):
+        def stress(u_grad, rho):
             epsilon = 0.5 * (u_grad + u_grad.T)
-            sigma = lmbda * np.trace(epsilon) * np.eye(self.dim) + 2*mu*epsilon
+            sigma = rho*lmbda * np.trace(epsilon) * np.eye(self.dim) + 2*mu*epsilon
             return sigma
         return stress
+    def set_params(self, rho):
+        rhos = rho * np.ones((self.fes[0].num_cells, self.fes[0].num_quads))
+        self.internal_vars = [rhos]
 
 # Mesh
 data_dir = os.path.join(os.path.dirname(__file__), 'data')
@@ -83,7 +86,9 @@ problem = LinearElasticity(unitcell.mesh, vec=vec, dim=dim, ele_type=ele_type,
                            perturbation=perturbation)
 
 # Solve
-sol_list = solver(problem, solver_options={'jax_solver': {}})
+fwd_pred = ad_wrapper(problem, solver_options={'jax_solver': {}}, adjoint_solver_options={'jax_solver': {}})
+rho = 0.5
+sol_list  = fwd_pred(rho)
 vtk_path = os.path.join(data_dir, f'vtk/u.vtu')
 save_sol(problem.fes[0], sol_list[0], vtk_path)
 
@@ -103,3 +108,14 @@ vol_total = np.sum(JxW)
 stress_weighted = stress_field * JxW[:, :, None, None]
 sigma_avg = np.sum(stress_weighted, axis=(0, 1)) / vol_total
 print(sigma_avg)
+
+def J(rho):
+    sol_list = fwd_pred(rho)
+    u_grad = problem.fes[0].sol_to_grad(sol_list[0])
+    stress_field = jax.vmap(stress_fn)(u_grad)
+    stress_weighted = stress_field * JxW[:, :, None, None]
+    sigma_avg = np.sum(stress_weighted, axis=(0, 1)) / vol_total
+    return sigma_avg[0, 1]
+
+adjoint = jax.grad(J)(rho)
+print("Adjoint sensitivity:", adjoint)
