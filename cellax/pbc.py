@@ -28,11 +28,15 @@ class PeriodicPairing:
 def prolongation_matrix(periodic_pairings: Iterable[PeriodicPairing], mesh: Mesh, vec: int, offset: int=0) -> scipy.sparse.csr_array:
     """
     Constructs the prolongation matrix `P` for applying periodic boundary conditions (PBCs)
-    in a finite element setting. The matrix `P` enforces constraints by reducing the degrees
-    of freedom (DoFs) associated with slave nodes and mapping them to master nodes.
+    in a finite element setting. The matrix `P` maps reduced (independent) degrees of freedom (DoFs)
+    to the full set of DoFs, including those constrained by periodicity.
 
-    This technique is commonly used in homogenization problems and representative volume elements (RVEs)
-    to impose periodicity between opposing boundaries of the mesh.
+    This is commonly used in homogenization problems and representative volume elements (RVEs),
+    where periodicity is imposed by expressing slave DoFs as linear combinations of master DoFs.
+
+    Specifically, given a reduced DoF vector `ū`, the full DoF vector `u` satisfying periodic constraints
+    is reconstructed as `u = P @ ū`. Conversely, residuals and system matrices in full space can be
+    projected into reduced space via `P.T`.
 
     Args:
         periodic_pairings (Iterable[PeriodicPairing]): 
@@ -47,8 +51,14 @@ def prolongation_matrix(periodic_pairings: Iterable[PeriodicPairing], mesh: Mesh
 
     Returns:
         scipy.sparse.csr_array: 
-            The prolongation matrix `P` of shape (N, M), where `N` is the total number of DoFs,
-            and `M` is the reduced number of independent DoFs after applying periodic constraints.
+            The prolongation matrix `P` of shape `(N, M)`, where:
+            - `N` is the total number of DoFs before applying periodic constraints
+                - `M` is the number of independent DoFs after applying the constraints
+
+            The matrix can be used as:
+                - `u = P @ ū` to expand a solution from reduced to full space
+                - `R̄ = P.T @ R` to project a residual from full to reduced space
+                - `J̄ = P.T @ J @ P` to obtain the reduced system Jacobian
     """
     p_node_inds_list_A = []
     p_node_inds_list_B = []

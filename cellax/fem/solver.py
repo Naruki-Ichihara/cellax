@@ -289,7 +289,7 @@ def line_search(problem, dofs, inc):
     for i in range(3):
         alpha *= 0.5
         res_norm_half = res_norm_fn(alpha)
-        print(f"i = {i}, res_norm = {res_norm}, res_norm_half = {res_norm_half}")
+        logger.debug(f"i = {i}, res_norm = {res_norm}, res_norm_half = {res_norm_half}")
         if res_norm_half > res_norm:
             alpha *= 2.
             break
@@ -302,7 +302,7 @@ def get_A(problem, full=False):
     logger.debug(f"Creating sparse matrix with scipy...")
     A_sp_scipy = scipy.sparse.csr_array((onp.array(problem.V), (problem.I, problem.J)),
         shape=(problem.num_total_dofs_all_vars, problem.num_total_dofs_all_vars))
-    # logger.info(f"Global sparse matrix takes about {A_sp_scipy.data.shape[0]*8*3/2**30} G memory to store.")
+    logger.info(f"Global sparse matrix takes about {A_sp_scipy.data.shape[0]*8*3/2**30} G memory to store.")
 
     A = PETSc.Mat().createAIJ(size=A_sp_scipy.shape, 
                               csr=(A_sp_scipy.indptr.astype(PETSc.IntType, copy=False),
@@ -315,7 +315,7 @@ def get_A(problem, full=False):
             A.zeroRows(row_inds)
 
     # Linear multipoint constraints
-    if hasattr(problem, 'P_mat') and full==False:
+    if hasattr(problem, 'P_mat') and not full:
         P = PETSc.Mat().createAIJ(size=problem.P_mat.shape, csr=(problem.P_mat.indptr.astype(PETSc.IntType, copy=False),
                                                    problem.P_mat.indices.astype(PETSc.IntType, copy=False), problem.P_mat.data))
 
@@ -385,8 +385,6 @@ def solver(problem, solver_options={}):
          [0 0 0 1]
     A = d(res)/d(u) = D*dr/du + (I - D)
 
-    TODO: linear multipoint constraint
-
     The function newton_update computes r(u) and dr/du
     """
     logger.debug(f"Calling the row elimination solver for imposing Dirichlet B.C.")
@@ -397,6 +395,7 @@ def solver(problem, solver_options={}):
         # We dont't want inititual guess to play a role in the differentiation chain.
         initial_guess = jax.lax.stop_gradient(solver_options['initial_guess'])
         dofs = jax.flatten_util.ravel_pytree(initial_guess)[0]
+
     else:
         if hasattr(problem, 'P_mat'):
             dofs = np.zeros(problem.P_mat.shape[1]) # reduced dofs
@@ -408,14 +407,16 @@ def solver(problem, solver_options={}):
 
     def newton_update_helper(dofs):
         if hasattr(problem, 'P_mat'):
+            logger.debug(f"Using P_mat, shape = {problem.P_mat.shape}")
             dofs = problem.P_mat @ dofs
-            if hasattr(problem, 'u_affine') and problem.u_affine is not None:
-                dofs = dofs + problem.u_affine
 
         sol_list = problem.unflatten_fn_sol_list(dofs)
         res_list = problem.newton_update(sol_list)
         res_vec = jax.flatten_util.ravel_pytree(res_list)[0]
         res_vec = apply_bc_vec(res_vec, dofs, problem)
+        
+        if hasattr(problem, 'P_mat'):
+            res_vec = problem.P_mat.T @ res_vec
 
         A = get_A(problem)
         A_full = get_A(problem, full=True)
@@ -424,10 +425,9 @@ def solver(problem, solver_options={}):
             u_affine_petsc = array_to_petsc_vec(problem.u_affine, A_full.getSize()[0])
             K_affine_vec = PETSc.Vec().createSeq(A_full.getSize()[0])
             A_full.mult(u_affine_petsc, K_affine_vec)
-            res_vec = res_vec - np.array(K_affine_vec.getArray())
 
-        if hasattr(problem, 'P_mat'):
-            res_vec = problem.P_mat.T @ res_vec
+            affine_force = problem.P_mat.T @ K_affine_vec
+            res_vec += affine_force
 
         return res_vec, A
 
@@ -436,10 +436,10 @@ def solver(problem, solver_options={}):
     res_val_initial = res_val
     rel_res_val = res_val/res_val_initial
     logger.debug(f"Before, l_2 res = {res_val}, relative l_2 res = {rel_res_val}")
+
     while (rel_res_val > rel_tol) and (res_val > tol):
         dofs = linear_incremental_solver(problem, res_vec, A, dofs, solver_options)
         res_vec, A = newton_update_helper(dofs)
-        # logger.debug(f"DEBUG: l_2 res = {np.linalg.norm(apply_bc_vec(A @ dofs, dofs, problem))}")
         res_val = np.linalg.norm(res_vec)
         rel_res_val = res_val/res_val_initial
 
@@ -450,8 +450,9 @@ def solver(problem, solver_options={}):
 
     if hasattr(problem, 'P_mat'):
         dofs = problem.P_mat @ dofs
-        if hasattr(problem, 'u_affine') and problem.u_affine is not None:
-            dofs = dofs + problem.u_affine
+    
+    if hasattr(problem, 'u_affine') and problem.u_affine is not None:
+        dofs = dofs + problem.u_affine
 
     # If sol_list = [[[u1x, u1y], 
     #                 [u2x, u2y], 

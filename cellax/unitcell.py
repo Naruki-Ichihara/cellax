@@ -14,9 +14,15 @@ class Unitcell(ABC):
 
     def __init__(self, atol: float=1e-5, **kwargs: Any):
         self.mesh = self.construct_mesh(**kwargs)
+        self.cells = self.mesh.cells
         self.points = self.mesh.points
+        self.ele_type = self.mesh.ele_type
+        self.num_points = self.points.shape[0]
+        self.num_cells = self.cells.shape[0]
+        self.num_dims = self.points.shape[1]
         self.atol = atol
-        self.lb, self.ub = self.bounds
+        self.lb = np.array([np.min(self.points[:, i]) for i in range(self.points.shape[1])])
+        self.ub = np.array([np.max(self.points[:, i]) for i in range(self.points.shape[1])])
         
         # Check masks
         corner_hits = np.sum(self.corner_mask)
@@ -29,6 +35,16 @@ class Unitcell(ABC):
     def construct_mesh(self, **kwargs: Any) -> Mesh:
         """Constructs the mesh for the unit cell."""
         raise NotImplementedError("Subclasses should implement this method.")
+    
+    @property
+    def cell_centers(self) -> np.ndarray:
+        """Get the centers of the cells in the unit cell.
+
+        Returns:
+            np.ndarray: The centers of the cells.
+        """
+        # Calculate the centers of the cells
+        return onp.mean(self.points[self.cells], axis=1)
     
     @property
     def bounds(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -57,20 +73,21 @@ class Unitcell(ABC):
 
         return np.array(corner_list)
     
-    def perturbation(self, mean_gradient: np.ndarray, origin: Optional[np.ndarray]=None) -> np.ndarray:
-        """Apply a perturbation to the unit cell points based on the mean gradient.
-
+    def u_affine(self, macroscopic_strain: np.ndarray, origin: Optional[np.ndarray]=None) -> np.ndarray:
+        """Apply an affine transformation to the points in the unit cell based on a macroscopic strain.
         Args:
-            mean_gradient (np.ndarray): The mean gradient to apply.
-            origin (Optional[np.ndarray]): The origin point for perturbation.
-
+            macroscopic_strain (np.ndarray): The macroscopic strain tensor.
+            origin (Optional[np.ndarray]): The origin point for the affine transformation. If None, uses the lower bound of the unit cell.
         Returns:
-            np.ndarray: Perturbed points.
+            np.ndarray: The transformed points in the unit cell.
         """
+        if self.points.shape[1] != macroscopic_strain.shape[0]:
+            raise ValueError(f"Dimension mismatch: points {self.points.shape[1]} vs macroscopic_strain {macroscopic_strain.shape[0]}")
         if origin is None:
-            origin = np.min(self.points, axis=0)  # default to lower-left corner
+            origin = self.lb
         x_shifted = self.points - origin
-        return x_shifted @ mean_gradient.T
+
+        return x_shifted @ macroscopic_strain.T
     
     def is_corner(self, point: np.ndarray) -> bool:
         """Check if a point is a corner of the unit cell.
@@ -154,7 +171,10 @@ class Unitcell(ABC):
                     np.isclose(point[axis], value, atol=self.atol),
                     np.logical_not(self.is_corner(point))
                 ]
-            elif excluding_edge:
+            else:
+                conds = np.isclose(point[axis], value, atol=self.atol)
+                
+            if excluding_edge:
                 conds = [
                     np.isclose(point[axis], value, atol=self.atol),
                     np.logical_not(self.is_edge(point)),
@@ -162,6 +182,7 @@ class Unitcell(ABC):
                 ]
             else:
                 conds = np.isclose(point[axis], value, atol=self.atol)
+                
             return np.all(np.stack(conds), axis=0)
         return fn
     

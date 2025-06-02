@@ -70,6 +70,7 @@ pairs_corner = [PeriodicPairing(corner_lb, corner_lt, map_lb_lt, 0),
                 PeriodicPairing(corner_lb, corner_rb, map_lb_rb, 0)]
 
 P = prolongation_matrix(pairs_edge+pairs_corner, unitcell.mesh, vec, 0)
+print("Prolongation matrix shape:", P.shape)
 
 # Perturbation
 exx = 0.
@@ -108,14 +109,3 @@ vol_total = np.sum(JxW)
 stress_weighted = stress_field * JxW[:, :, None, None]
 sigma_avg = np.sum(stress_weighted, axis=(0, 1)) / vol_total
 print(sigma_avg)
-
-def J(rho):
-    sol_list = fwd_pred(rho)
-    u_grad = problem.fes[0].sol_to_grad(sol_list[0])
-    stress_field = jax.vmap(stress_fn)(u_grad)
-    stress_weighted = stress_field * JxW[:, :, None, None]
-    sigma_avg = np.sum(stress_weighted, axis=(0, 1)) / vol_total
-    return sigma_avg[0, 1]
-
-adjoint = jax.grad(J)(rho)
-print("Adjoint sensitivity:", adjoint)

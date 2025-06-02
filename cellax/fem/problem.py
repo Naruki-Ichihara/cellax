@@ -62,7 +62,7 @@ class Problem:
     neumann_subdomains: Optional[List[Callable]] = None
     additional_info: Any = ()
     prolongation_matrix: Optional[np.ndarray] = None
-    perturbation: Optional[np.ndarray] = None
+    u_affine: Optional[np.ndarray] = None
 
     def __post_init__(self):
 
@@ -70,12 +70,9 @@ class Problem:
             self.P_mat = self.prolongation_matrix
             logger.debug("Using provided prolongation matrix.")
 
-        if self.perturbation is not None:
-            assert self.perturbation.shape[1] == self.dim, \
-                f"Perturbation shape {self.perturbation.shape[1]} does not match dimension {self.vec}."
-            assert self.perturbation.shape[1] == len(self.mesh.points[1]), \
-                f"Perturbation shape {self.perturbation.shape[1]} does not match mesh points shape {len(self.mesh.points[1])}."
-            self.u_affine = self.perturbation.reshape(-1)
+        if self.u_affine is not None:
+            self.u_affine = self.u_affine.reshape(-1)
+            logger.debug(f"Using provided perturbation. Size is: {len(self.u_affine)}")
 
         if type(self.mesh) != type([]):
             self.mesh = [self.mesh]
