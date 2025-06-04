@@ -9,6 +9,40 @@ from functools import wraps
 from cellax.fem import logger
 from cellax.fem.generate_mesh import get_meshio_cell_type
 
+def save_sol2(fe, sol, sol_file, cell_infos=None, point_infos=None):
+    cell_type = get_meshio_cell_type(fe.ele_type)
+    sol_dir = os.path.dirname(sol_file)
+    os.makedirs(sol_dir, exist_ok=True)
+
+    out_mesh = meshio.Mesh(points=fe.points, cells={cell_type: fe.cells})
+    out_mesh.point_data['u'] = onp.array(sol, dtype=onp.float32)
+
+    if cell_infos is not None:
+        out_mesh.cell_data = {}
+        for cell_info in cell_infos:
+            name, data = cell_info
+            assert data.shape[0] == fe.num_cells, (
+                f"cell data wrong shape, got {data.shape}, expected first dim = {fe.num_cells}"
+            )
+            data = onp.array(data, dtype=onp.float32)
+            if data.ndim == 3:
+                # Tensor (num_cells, 3, 3) -> flatten to (num_cells, 9)
+                data = data.reshape(fe.num_cells, -1)
+            elif data.ndim == 2:
+                # Vector (num_cells, n) is OK
+                pass
+            else:
+                # Scalar (num_cells,)
+                data = data.reshape(fe.num_cells, 1)
+            out_mesh.cell_data[name] = [data]
+
+    if point_infos is not None:
+        for point_info in point_infos:
+            name, data = point_info
+            assert len(data) == len(sol), "point data wrong shape!"
+            out_mesh.point_data[name] = onp.array(data, dtype=onp.float32)
+
+    out_mesh.write(sol_file)
 
 def save_sol(fe, sol, sol_file, cell_infos=None, point_infos=None):
     cell_type = get_meshio_cell_type(fe.ele_type)

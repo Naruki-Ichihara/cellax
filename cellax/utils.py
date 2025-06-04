@@ -23,7 +23,7 @@ def compute_macro_stress_linear_elastic(problem: Problem, E: float, nu: float, u
 
     def stress_fn(u_grad, rho):
         if rho is not None:
-            E_r = E_min + (E - E_min) * rho **3
+            E_r = E_min + (E - E_min) * rho**5
         else:
             E_r = E
         mu_r = E_r / (2.0 * (1.0 + nu))

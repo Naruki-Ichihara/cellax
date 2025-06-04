@@ -9,8 +9,6 @@ RUN pip install numpy==1.26.0
 #RUN apt install libglu1-mesa -y
 RUN apt install software-properties-common -y
 RUN add-apt-repository -y ppa:fenics-packages/fenics
-RUN apt-add-repository -y universe
-RUN add-apt-repository -y ppa:ngsolve/ngsolve
 RUN apt update
 
 
@@ -19,7 +17,6 @@ RUN apt update
 
 #RUN pip install fenics-basix
 #RUN apt install -y fenicsx
-RUN apt install -y ngsolve
 
 WORKDIR /home/
 CMD ["/bin/bash"]

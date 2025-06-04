@@ -6,13 +6,13 @@ import jax.numpy as np
 from cellax.fem.problem import Problem, DirichletBC
 from cellax.fem.generate_mesh import box_mesh, Mesh, get_meshio_cell_type
 from cellax.pbc import PeriodicPairing, prolongation_matrix
+import cellax.tpms as tpms
 from cellax.fem.solver import solver, ad_wrapper
-from cellax.fem.utils import save_sol
+from cellax.fem.utils import save_sol2
 
 # Material parameters.
 E = 70e3
-E_min = 1e-3
-penal = 3
+E_min = 1e-8
 nu = 0.3
 mu = E / (2.0 * (1.0 + nu))
 lmbda = E * nu / ((1 + nu) * (1 - 2 * nu))
@@ -23,7 +23,7 @@ class LinearElasticity(Problem):
     # solves -div(f(u_grad)) = b. Here, we have f(u_grad) = sigma.
     def get_tensor_map(self):
         def stress(u_grad, rho):
-            E_reduced = E_min + (E - E_min)*rho**penal
+            E_reduced = E_min + (E - E_min)*rho**5
             mu = E_reduced/(2.*(1.+nu))
             lmbda = E_reduced*nu/((1+nu)*(1-2*nu))
             epsilon = 0.5 * (u_grad + u_grad.T)
@@ -40,7 +40,7 @@ class LinearElasticity(Problem):
         self.internal_vars = [rhos]
 # Mesh
 data_dir = os.path.join(os.path.dirname(__file__), 'data')
-N = 50
+N = 120
 L = 1.0
 vec = 3
 dim = 3
@@ -114,11 +114,9 @@ problem = LinearElasticity(unitcell.mesh, vec=vec, dim=dim, ele_type=ele_type,
                            prolongation_matrix=P, 
                            u_affine=u_affine)
 
-import cellax.tpms as tpms
-
 # Solve
 fwd_pred = ad_wrapper(problem, solver_options={'jax_solver': {}}, adjoint_solver_options={'jax_solver': {}})
-rho = jax.vmap(tpms.schoen_gyroid, in_axes=(0, None, None))(unitcell.cell_centers, [1, 1, 1], [0., 0., 0.])
+rho = jax.vmap(tpms.schoen_gyroid, in_axes=(0, None, None))(unitcell.cell_centers, [0.25, 0.25, 0.25], [0., 0., 0.])
 #rho = jax.vmap(lambda x: 1)(unitcell.cell_centers)  # Use a constant density for testing
 sol_list  = fwd_pred(rho)
 vtk_path = os.path.join(data_dir, f'vtk/u.vtu')
@@ -129,4 +127,18 @@ u_sol = sol_list[0]  # (num_dofs,)
 sigma_avg = compute_macro_stress_linear_elastic(problem, E, nu, u_sol, rho=rho, E_min=E_min)
 print(f"sigma_avg: {sigma_avg}")
 
-save_sol(problem.fes[0], sol_list[0], vtk_path, cell_infos=[('rho', problem.full_params[:])])  # Save the solution and stress field
+# Backward
+def J(rho):
+    u_sol = sol_list[0]  # (num_dofs,)
+    sigma_avg = compute_macro_stress_linear_elastic(problem, E, nu, u_sol, rho=rho, E_min=E_min)
+    return np.sum(sigma_avg)
+
+def strain_fn(u_grad):
+    """Compute the strain tensor from the displacement gradient."""
+    return 0.5 * (u_grad + u_grad.T)  # Symmetric strain tensor
+
+u_grad = problem.fes[0].sol_to_grad(u_sol)  # (num_cells, num_quads, dim, dim)
+strain_field = jax.vmap(strain_fn)(u_grad.reshape(-1, 3, 3))  # (num_cells*num_quads, dim, dim)
+strain_field = strain_field.reshape(u_grad.shape)  # (num_cells, num_quads, dim, dim)
+strain_cells = np.mean(strain_field, axis=1)  # Average over quadrature points
+save_sol2(problem.fes[0], sol_list[0], vtk_path, cell_infos=[('rho', problem.full_params[:]), ('strain', strain_cells)])

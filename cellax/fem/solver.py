@@ -50,7 +50,11 @@ def jax_solve(A, b, x0, precond):
     logger.debug(f"JAX Solver - Solving linear system")
     indptr, indices, data = A.getValuesCSR()
     A_sp_scipy = scipy.sparse.csr_array((data, indices, indptr), shape=A.getSize())
-    A = BCOO.from_scipy_sparse(A_sp_scipy).sort_indices()
+    #A = BCOO.from_scipy_sparse(A_sp_scipy).sort_indices()
+    logger.debug(f"...Generate BCOO in CPU. This may take a while for large systems.")
+    with jax.default_device(jax.devices("cpu")[0]):
+        A_cpu = BCOO.from_scipy_sparse(A_sp_scipy).sort_indices()
+    A = jax.device_put(A_cpu, device=jax.devices("gpu")[0])
     jacobi = np.array(A_sp_scipy.diagonal())
     pc = lambda x: x * (1. / jacobi) if precond else None
     x, info = jax.scipy.sparse.linalg.bicgstab(A,
