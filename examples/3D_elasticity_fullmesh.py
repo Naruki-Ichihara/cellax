@@ -9,6 +9,7 @@ from cellax.pbc import PeriodicPairing, prolongation_matrix
 import cellax.tpms as tpms
 from cellax.fem.solver import solver, ad_wrapper
 from cellax.fem.utils import save_sol2
+from cellax.graphs import sc, bcc, fcc
 
 # Material parameters.
 E = 70e3
@@ -40,7 +41,7 @@ class LinearElasticity(Problem):
         self.internal_vars = [rhos]
 # Mesh
 data_dir = os.path.join(os.path.dirname(__file__), 'data')
-N = 120
+N = 80
 L = 1.0
 vec = 3
 dim = 3
@@ -116,8 +117,11 @@ problem = LinearElasticity(unitcell.mesh, vec=vec, dim=dim, ele_type=ele_type,
 
 # Solve
 fwd_pred = ad_wrapper(problem, solver_options={'jax_solver': {}}, adjoint_solver_options={'jax_solver': {}})
-rho = jax.vmap(tpms.schoen_gyroid, in_axes=(0, None, None))(unitcell.cell_centers, [0.25, 0.25, 0.25], [0., 0., 0.])
+#rho = jax.vmap(tpms.schoen_gyroid, in_axes=(0, None, None))(unitcell.cell_centers, [1, 1, 1], [0., 0., 0.])
 #rho = jax.vmap(lambda x: 1)(unitcell.cell_centers)  # Use a constant density for testing
+rho = jax.vmap(bcc(thickness=0.1, scale=L), in_axes=(0,))(
+    unitcell.cell_centers
+)
 sol_list  = fwd_pred(rho)
 vtk_path = os.path.join(data_dir, f'vtk/u.vtu')
 

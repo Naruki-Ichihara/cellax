@@ -5,11 +5,12 @@ import jax.flatten_util
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, List, Iterable
 import functools
-
+import scipy
 from cellax.fem.utils import timeit 
 from cellax.fem.generate_mesh import Mesh
 from cellax.fem.fe import FiniteElement
 from cellax.fem import logger
+import gc
 
 @dataclass
 class DirichletBC:
@@ -478,3 +479,36 @@ class Problem:
         """Used for solving inverse problems.
         """
         raise NotImplementedError("Child class must implement this function!")
+    
+    def compute_csr(self, chunk_size: Optional[int] = None):
+        """Compute the sparse matrix in CSR format.
+        """
+        logger.debug(f"Creating sparse matrix with scipy...")
+        if not hasattr(self, 'V'):
+            raise ValueError("You must call newton_update() before computing the CSR matrix.")
+
+        if chunk_size is not None:
+            if chunk_size <= 0:
+                raise ValueError("chunk_size must be a positive integer.")
+    
+            num_chunks = (self.V.shape[0] + chunk_size - 1) // chunk_size
+            csr_shape = (self.num_total_dofs_all_vars, self.num_total_dofs_all_vars)
+            csr_total = scipy.sparse.csr_matrix(csr_shape)
+
+            for i in range(num_chunks):
+                V_chunk = self.V[i*chunk_size : (i+1)*chunk_size]
+                I_chunk = self.I[i*chunk_size : (i+1)*chunk_size]
+                J_chunk = self.J[i*chunk_size : (i+1)*chunk_size]
+                logger.debug(f"Building chunk {i+1}/{num_chunks}, size={len(V_chunk)}")
+
+                csr_chunk = scipy.sparse.csr_matrix((onp.array(V_chunk), (onp.array(I_chunk), onp.array(J_chunk))), shape=csr_shape)
+                del V_chunk
+                del I_chunk
+                del J_chunk
+                gc.collect()
+                csr_total += csr_chunk
+
+            self.csr_array = csr_total
+        else:
+            self.csr_array = scipy.sparse.csr_array((onp.array(self.V), (self.I, self.J)),
+            shape=(self.num_total_dofs_all_vars, self.num_total_dofs_all_vars))

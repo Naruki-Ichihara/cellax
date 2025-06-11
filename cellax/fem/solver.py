@@ -6,11 +6,13 @@ from jax.experimental.sparse import BCOO
 import scipy
 import time
 from petsc4py import PETSc
+import gc
 
 from cellax.fem import logger
 
 from jax import config
 config.update("jax_enable_x64", True)
+CHUNLK_SIZE = 100000000
 
 def array_to_petsc_vec(arr, size=None):
     """
@@ -50,11 +52,11 @@ def jax_solve(A, b, x0, precond):
     logger.debug(f"JAX Solver - Solving linear system")
     indptr, indices, data = A.getValuesCSR()
     A_sp_scipy = scipy.sparse.csr_array((data, indices, indptr), shape=A.getSize())
-    #A = BCOO.from_scipy_sparse(A_sp_scipy).sort_indices()
-    logger.debug(f"...Generate BCOO in CPU. This may take a while for large systems.")
-    with jax.default_device(jax.devices("cpu")[0]):
-        A_cpu = BCOO.from_scipy_sparse(A_sp_scipy).sort_indices()
-    A = jax.device_put(A_cpu, device=jax.devices("gpu")[0])
+    A = BCOO.from_scipy_sparse(A_sp_scipy).sort_indices()
+    #logger.debug(f"...Generate BCOO in CPU. This may take a while for large systems.")
+    #with jax.default_device(jax.devices("cpu")[0]):
+    #    A_cpu = BCOO.from_scipy_sparse(A_sp_scipy).sort_indices()
+    #A = jax.device_put(A_cpu, device=jax.devices("gpu")[0])
     jacobi = np.array(A_sp_scipy.diagonal())
     pc = lambda x: x * (1. / jacobi) if precond else None
     x, info = jax.scipy.sparse.linalg.bicgstab(A,
@@ -302,10 +304,8 @@ def line_search(problem, dofs, inc):
     return dofs + alpha*inc
 
 
-def get_A(problem, full=False):
-    logger.debug(f"Creating sparse matrix with scipy...")
-    A_sp_scipy = scipy.sparse.csr_array((onp.array(problem.V), (problem.I, problem.J)),
-        shape=(problem.num_total_dofs_all_vars, problem.num_total_dofs_all_vars))
+def get_A(problem):
+    A_sp_scipy = problem.csr_array
     logger.info(f"Global sparse matrix takes about {A_sp_scipy.data.shape[0]*8*3/2**30} G memory to store.")
 
     A = PETSc.Mat().createAIJ(size=A_sp_scipy.shape, 
@@ -319,14 +319,14 @@ def get_A(problem, full=False):
             A.zeroRows(row_inds)
 
     # Linear multipoint constraints
-    if hasattr(problem, 'P_mat') and not full:
+    if hasattr(problem, 'P_mat'):
         P = PETSc.Mat().createAIJ(size=problem.P_mat.shape, csr=(problem.P_mat.indptr.astype(PETSc.IntType, copy=False),
                                                    problem.P_mat.indices.astype(PETSc.IntType, copy=False), problem.P_mat.data))
 
         tmp = A.matMult(P)
         P_T = P.transpose()
-        A = P_T.matMult(tmp)
-
+        A_reduced = P_T.matMult(tmp)
+        return A, A_reduced
     return A
 
 
@@ -418,22 +418,25 @@ def solver(problem, solver_options={}):
         res_list = problem.newton_update(sol_list)
         res_vec = jax.flatten_util.ravel_pytree(res_list)[0]
         res_vec = apply_bc_vec(res_vec, dofs, problem)
+
+        problem.compute_csr(CHUNLK_SIZE)  # Ensure CSR matrix is computed
         
         if hasattr(problem, 'P_mat'):
             res_vec = problem.P_mat.T @ res_vec
 
-        A = get_A(problem)
-        A_full = get_A(problem, full=True)
+        A, A_reduced = get_A(problem)
 
         if hasattr(problem, 'u_affine') and problem.u_affine is not None:
-            u_affine_petsc = array_to_petsc_vec(problem.u_affine, A_full.getSize()[0])
-            K_affine_vec = PETSc.Vec().createSeq(A_full.getSize()[0])
-            A_full.mult(u_affine_petsc, K_affine_vec)
 
+            u_affine_petsc = array_to_petsc_vec(problem.u_affine, A.getSize()[0])
+            K_affine_vec = PETSc.Vec().createSeq(A.getSize()[0])
+            A.mult(u_affine_petsc, K_affine_vec)
+            del A
+            gc.collect()
             affine_force = problem.P_mat.T @ K_affine_vec
             res_vec += affine_force
 
-        return res_vec, A
+        return res_vec, A_reduced
 
     res_vec, A = newton_update_helper(dofs)
     res_val = np.linalg.norm(res_vec)
