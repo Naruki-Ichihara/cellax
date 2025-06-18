@@ -45,7 +45,7 @@ class LinearElasticity(Problem):
         self.internal_vars = [rho_quads]
 # Mesh
 data_dir = os.path.join(os.path.dirname(__file__), 'data')
-N = 80
+N = 10
 L = 1.0
 vec = 3
 dim = 3
@@ -87,8 +87,11 @@ problem = LinearElasticity(unitcell.mesh, vec=vec, dim=dim, ele_type=ele_type,
 
 # Solve
 fwd_pred = ad_wrapper(problem, solver_options={'jax_solver': {}}, adjoint_solver_options={'jax_solver': {}})
-rho_full = jax.vmap(bcc(radius=0.2, scale=L), in_axes=(0,))(unitcell.points)
-rho = P_rho @ (P_rho.T @ rho_full)
+#rho = jax.vmap(tpms.schoen_gyroid, in_axes=(0, None, None))(unitcell.cell_centers, [1, 1, 1], [0., 0., 0.])
+#rho = jax.vmap(lambda x: 1)(unitcell.cell_centers)  # Use a constant density for testing
+#rho = jax.vmap(bcc(radius=0.2, scale=L), in_axes=(0,))(unitcell.points)
+rho_reduced = jax.random.uniform(jax.random.PRNGKey(0), shape=(1000,), minval=0.5, maxval=1.0)
+rho = P_rho @ rho_reduced
 sol_list  = fwd_pred(rho)
 vtk_path = os.path.join(data_dir, f'vtk/u.vtu')
 

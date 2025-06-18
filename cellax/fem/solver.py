@@ -426,11 +426,11 @@ def solver(problem, solver_options={}):
 
         A, A_reduced = get_A(problem)
 
-        if hasattr(problem, 'u_affine') and problem.u_affine is not None:
+        if hasattr(problem, 'macro_term') and problem.macro_term is not None:
 
-            u_affine_petsc = array_to_petsc_vec(problem.u_affine, A.getSize()[0])
+            macro_term_petsc = array_to_petsc_vec(problem.macro_term, A.getSize()[0])
             K_affine_vec = PETSc.Vec().createSeq(A.getSize()[0])
-            A.mult(u_affine_petsc, K_affine_vec)
+            A.mult(macro_term_petsc, K_affine_vec)
             del A
             gc.collect()
             affine_force = problem.P_mat.T @ K_affine_vec
@@ -458,8 +458,8 @@ def solver(problem, solver_options={}):
     if hasattr(problem, 'P_mat'):
         dofs = problem.P_mat @ dofs
     
-    if hasattr(problem, 'u_affine') and problem.u_affine is not None:
-        dofs = dofs + problem.u_affine
+    if hasattr(problem, 'macro_term') and problem.macro_term is not None:
+        dofs = dofs + problem.macro_term
 
     # If sol_list = [[[u1x, u1y], 
     #                 [u2x, u2y], 

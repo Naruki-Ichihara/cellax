@@ -73,7 +73,7 @@ class Unitcell(ABC):
 
         return np.array(corner_list)
     
-    def u_affine(self, macroscopic_strain: np.ndarray, origin: Optional[np.ndarray]=None) -> np.ndarray:
+    def macro_disp(self, macroscopic_strain: np.ndarray, origin: Optional[np.ndarray]=None) -> np.ndarray:
         """Apply an affine transformation to the points in the unit cell based on a macroscopic strain.
         Args:
             macroscopic_strain (np.ndarray): The macroscopic strain tensor.

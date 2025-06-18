@@ -8,6 +8,8 @@ import scipy
 from dataclasses import dataclass
 from typing import Callable, Iterable
 from cellax.fem.generate_mesh import Mesh
+from cellax.unitcell import Unitcell
+import itertools
 
 @dataclass
 class PeriodicPairing:
@@ -127,3 +129,50 @@ def prolongation_matrix(periodic_pairings: Iterable[PeriodicPairing], mesh: Mesh
     P_mat = scipy.sparse.csr_array((onp.array(V), (onp.array(I), onp.array(J))), shape=(N, M))
 
     return P_mat
+
+def periodic_bc_3D(
+    unitcell: Unitcell,
+    vec: int = 1,
+    dim: int = 3):
+
+    L = unitcell.ub - unitcell.lb
+
+    face_pairs = []
+    for axis in range(dim):
+        master_fn = unitcell.face_function(axis, 0, excluding_edge=True)
+        slave_fn = unitcell.face_function(axis, L[axis], excluding_edge=True)
+        for i in range(vec):
+            face_pairs.append(PeriodicPairing(
+                master_fn,
+                slave_fn,
+                unitcell.mapping(master_fn, slave_fn), [i]))
+
+    edge_pairs = []
+    for axes in [[1, 2], [0, 2], [0, 1]]:
+        for values in [[L[axes[0]], 0], [L[axes[0]], L[axes[1]]], [0, L[axes[1]]]]:
+            master_fn = unitcell.edge_function(axes, [0, 0], excluding_corner=True)
+            slave_fn = unitcell.edge_function(axes, values, excluding_corner=True)
+            for i in range(vec):
+                edge_pairs.append(
+                    PeriodicPairing(
+                        master_fn,
+                        slave_fn,
+                        unitcell.mapping(master_fn, slave_fn), [i]))
+                
+    corner_origin = unitcell.lb
+    corner_pairs = []
+    for corner in itertools.product(*[[corner_origin[i], corner_origin[i] + L[i]] for i in range(dim)]):
+        if np.allclose(np.array(corner), corner_origin):
+            continue
+        master_fn = unitcell.corner_function(corner_origin)
+        slave_fn = unitcell.corner_function(corner)
+        for i in range(vec):
+            corner_pairs.append(
+                PeriodicPairing(
+                    master_fn,
+                    slave_fn,
+                    unitcell.mapping(master_fn, slave_fn),
+                    [i]
+                )
+            )
+    return corner_pairs + edge_pairs + face_pairs

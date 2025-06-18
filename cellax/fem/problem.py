@@ -51,8 +51,8 @@ class Problem:
             Additional information to be passed to the custom initialization function.
         prolongation_matrix: Optional[np.ndarray], optional
             Prolongation matrix for the problem, used in multigrid methods.
-        perturbation: Optional[np.ndarray], optional
-            Perturbation for the problem, used in inverse problems or sensitivity analysis.
+        macro_term: Optional[np.ndarray], optional
+             the macroscopic displacement field, typically defined as an affine function of space through the macroscopic strain tensor.
     """
     mesh: Mesh
     vec: int
@@ -63,7 +63,7 @@ class Problem:
     neumann_subdomains: Optional[List[Callable]] = None
     additional_info: Any = ()
     prolongation_matrix: Optional[np.ndarray] = None
-    u_affine: Optional[np.ndarray] = None
+    macro_term: Optional[np.ndarray] = None
 
     def __post_init__(self):
 
@@ -71,9 +71,9 @@ class Problem:
             self.P_mat = self.prolongation_matrix
             logger.debug("Using provided prolongation matrix.")
 
-        if self.u_affine is not None:
-            self.u_affine = self.u_affine.reshape(-1)
-            logger.debug(f"Using provided perturbation. Size is: {len(self.u_affine)}")
+        if self.macro_term is not None:
+            self.macro_term = self.macro_term.reshape(-1)
+            logger.debug(f"Using provided perturbation. Size is: {len(self.macro_term)}")
 
         if type(self.mesh) != type([]):
             self.mesh = [self.mesh]
@@ -96,11 +96,14 @@ class Problem:
                                   ele_type=self.ele_type[i], 
                                   gauss_order=self.gauss_order[i] if type(self.gauss_order) == type([]) else self.gauss_order,
                                   dirichlet_bc_info=self.dirichlet_bc_info) \
-                    for i in range(self.num_vars)] 
+                    for i in range(self.num_vars)]
+        self.fe = self.fes[0]  # For convenience, use the first FE as the default one
 
         self.cells_list = [fe.cells for fe in self.fes]
         # Assume all fes have the same number of cells, same dimension
         self.num_cells = self.fes[0].num_cells
+        self.num_nodes = self.fes[0].num_nodes
+        self.num_quads = self.fes[0].num_quads
         self.boundary_inds_list = self.fes[0].get_boundary_conditions_inds(self.neumann_subdomains)
 
         self.offset = [0] 
